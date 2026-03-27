@@ -103,6 +103,30 @@ FABRICATION_PATTERNS = [
 ]
 
 
+def _extract_complete_blocks(raw):
+    """
+    Recover complete {response, share_link} blocks from a truncated xAI export.
+    The FULL_TEXT export starts and ends mid-object; this finds the 642 complete
+    inner blocks by scanning for the repeating structural pattern.
+    """
+    # Find the first complete outer object open
+    first = raw.find('\n        {\n          "response"')
+    if first == -1:
+        return None
+    # Find all closing positions: "share_link": null followed by whitespace + }
+    closings = list(re.finditer(r'"share_link":\s*null\s*\n\s*\}', raw))
+    if not closings:
+        return None
+    last_end = closings[-1].end()
+    # Slice out only the complete blocks and wrap as a JSON array
+    fragment = raw[first + 1 : last_end]   # skip the leading \n
+    wrapped = '[' + fragment + ']'
+    try:
+        return json.loads(wrapped)
+    except json.JSONDecodeError:
+        return None
+
+
 def load_chat_data(filepath):
     """Load and parse xAI chat log data, handling both array and object formats."""
     with open(filepath, 'r', encoding='utf-8') as f:
@@ -118,7 +142,14 @@ def load_chat_data(filepath):
         except json.JSONDecodeError:
             # Try removing trailing commas and wrapping
             cleaned = raw.rstrip(',').rstrip()
-            data = json.loads('[' + cleaned + ']')
+            try:
+                data = json.loads('[' + cleaned + ']')
+            except json.JSONDecodeError:
+                # Last resort: extract only the complete {response, share_link} blocks
+                # (handles truncated FULL_TEXT exports that start/end mid-object)
+                data = _extract_complete_blocks(raw)
+                if data is None:
+                    raise ValueError(f"Could not parse {filepath} in any supported format")
 
     messages = []
     if isinstance(data, list):
