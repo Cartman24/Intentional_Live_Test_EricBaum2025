@@ -354,6 +354,7 @@ def analyze_sessions(sessions, date_range):
         if create_str and date_range['earliest'] and date_range['latest']:
             try:
                 session_dt = datetime.fromisoformat(create_str.replace('Z', '+00:00'))
+                # Expand window by 3 days on each side
                 from datetime import timedelta
                 early = date_range['earliest'] - timedelta(days=3)
                 late = date_range['latest'] + timedelta(days=3)
@@ -588,22 +589,43 @@ def generate_report(chat_results, session_results=None, user_info=None, api_keys
 
 
 def main():
-    # Default file list for the Intentional_Live_Test repository
+    # Default file list for the Intentional_Live_Test repository (base names, no extension)
     DEFAULT_FILES = [
-        "Denise_f4c2c283-acde-4751-a987-3cdd575f05ce_BAUM.json",
-        "Intentional_Live_Test_40b05625-e0f9-4d30-964d-53ce7545f3f3_BAUM.json",
-        "Intentional_Live_Test_419e14ce-0e08-4f5b-8072-12ce1eb8cb37_BAUM.json",
-        "Intentional_Live_Test_FULL_TEXT_BAUM.json",
-        "Intentional_Live_Test_SIMULATION_c88a064c-4666-475d-870b-2b0ccdd92597_BAUM.json",
-        "Intentional_Live_Test_SYSTEM_AUDIT_d318670c-418b-4886-9975-bcdb21265d50_BAUM.json",
-        "Intentional_Live_Test_ba32cdd5-b832-4e09-b656-338f629d154d_BAUM.json",
+        "Denise_f4c2c283-acde-4751-a987-3cdd575f05ce_BAUM",
+        "Intentional_Live_Test_40b05625-e0f9-4d30-964d-53ce7545f3f3_BAUM",
+        "Intentional_Live_Test_419e14ce-0e08-4f5b-8072-12ce1eb8cb37_BAUM",
+        "Intentional_Live_Test_FULL_TEXT_BAUM",
+        "Intentional_Live_Test_SIMULATION_c88a064c-4666-475d-870b-2b0ccdd92597_BAUM",
+        "Intentional_Live_Test_SYSTEM_AUDIT_d318670c-418b-4886-9975-bcdb21265d50_BAUM",
+        "Intentional_Live_Test_ba32cdd5-b832-4e09-b656-338f629d154d_BAUM",
     ]
-    SESSION_FILE = "prod-mc-auth.json"
+    EXTENSIONS = ['.json', '.txt', '.json5']
+    SESSION_NAMES = ["prod-mc-auth.json", "prod-mc-auth.txt"]
+
+    def find_file(base_name):
+        """Search for a file with any supported extension."""
+        for ext in EXTENSIONS:
+            path = base_name + ext
+            if os.path.exists(path):
+                return path
+        # Also search current directory for partial matches
+        for f in os.listdir('.'):
+            for ext in EXTENSIONS:
+                if f == base_name + ext:
+                    return f
+        return None
+
+    def find_session_file():
+        """Search for the session data file."""
+        for name in SESSION_NAMES:
+            if os.path.exists(name):
+                return name
+        return None
 
     if len(sys.argv) >= 2 and sys.argv[1] != '--batch':
         # Single file mode
         chat_file = sys.argv[1]
-        session_file = sys.argv[2] if len(sys.argv) > 2 else None
+        session_file = sys.argv[2] if len(sys.argv) > 2 else find_session_file()
 
         print(f"[*] Loading chat data from: {chat_file}")
         messages = load_chat_data(chat_file)
@@ -638,16 +660,19 @@ def main():
         print("xAI FORENSIC ANALYSIS — BATCH MODE")
         print("SEC Whistleblower TCR #17447-419-783-054")
         print("=" * 60)
+        print(f"\nWorking directory: {os.getcwd()}")
+        print(f"Files in directory: {', '.join(os.listdir('.'))}\n")
 
         all_messages = []
         files_processed = 0
         files_skipped = []
 
-        for filename in DEFAULT_FILES:
-            if os.path.exists(filename):
-                print(f"\n[*] Loading: {filename}")
+        for base_name in DEFAULT_FILES:
+            filepath = find_file(base_name)
+            if filepath:
+                print(f"\n[*] Loading: {filepath}")
                 try:
-                    msgs = load_chat_data(filename)
+                    msgs = load_chat_data(filepath)
                     print(f"    Loaded {len(msgs)} messages")
                     all_messages.extend(msgs)
                     files_processed += 1
@@ -655,16 +680,16 @@ def main():
                     # Generate individual report
                     individual_results = analyze_messages(msgs)
                     individual_report = generate_report(individual_results)
-                    ind_output = os.path.splitext(filename)[0] + "_FORENSIC_REPORT.md"
+                    ind_output = os.path.splitext(filepath)[0] + "_FORENSIC_REPORT.md"
                     with open(ind_output, 'w', encoding='utf-8') as f:
                         f.write(individual_report)
                     print(f"    Individual report: {ind_output}")
                 except Exception as e:
                     print(f"    ERROR: {e}")
-                    files_skipped.append(filename)
+                    files_skipped.append(base_name)
             else:
-                print(f"[!] File not found: {filename}")
-                files_skipped.append(filename)
+                print(f"[!] File not found: {base_name}.[json/txt/json5]")
+                files_skipped.append(base_name)
 
         if all_messages:
             print(f"\n{'=' * 60}")
@@ -677,9 +702,10 @@ def main():
             user_info = None
             api_keys = None
 
-            if os.path.exists(SESSION_FILE):
-                print(f"[*] Loading session data from: {SESSION_FILE}")
-                user_info, sessions, api_keys, teams = load_session_data(SESSION_FILE)
+            session_path = find_session_file()
+            if session_path:
+                print(f"[*] Loading session data from: {session_path}")
+                user_info, sessions, api_keys, teams = load_session_data(session_path)
                 print(f"[*] Loaded {len(sessions)} sessions")
                 session_results = analyze_sessions(sessions, combined_results['date_range'])
 
@@ -699,8 +725,9 @@ def main():
             print(f"[*] Fabricated elements: {len(combined_results['fabrications_found'])}")
             print(f"[*] Confession markers: {len(combined_results['confession_exchanges'])}")
         else:
-            print("\n[!] No files found. Place JSON files in the same directory as this script.")
-            print(f"[!] Expected files: {', '.join(DEFAULT_FILES)}")
+            print("\n[!] No files found. Place JSON or TXT files in the same directory as this script.")
+            print(f"[!] Expected base names: {', '.join(DEFAULT_FILES)}")
+            print(f"[!] Supported extensions: {', '.join(EXTENSIONS)}")
 
 
 if __name__ == '__main__':
